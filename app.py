@@ -4,170 +4,223 @@ import google.generativeai as genai
 from datetime import datetime
 import urllib.parse
 
-# --- SETUP ---
-st.set_page_config(page_title="Pro Payment Manager", layout="wide")
-st.title("💼 AI Payment Manager (Pro Version)")
+# --- 1. PAGE CONFIGURATION (Isse tab ka naam aur icon badlega) ---
+st.set_page_config(
+    page_title="PaymentPro AI Dashboard",
+    page_icon="💳",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-# --- AUTO-FIX EXCEL (Schema Migration) ---
-# Agar purani file mein naye columns nahi hain, toh ye unhe add kar dega
+# --- 2. CUSTOM CSS (Ye hai asli magic jo app ko sundar banayega) ---
+st.markdown("""
+    <style>
+    /* Main Background */
+    .stApp {
+        background-color: #f8f9fa;
+    }
+    
+    /* Card Style Containers */
+    .css-1r6slb0, .css-12w0qpk {
+        background-color: white;
+        padding: 20px;
+        border-radius: 15px;
+        box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.05);
+        border: 1px solid #e0e0e0;
+    }
+    
+    /* Metrics (Numbers) styling */
+    div[data-testid="stMetricValue"] {
+        font-size: 28px;
+        color: #2E86C1;
+        font-weight: bold;
+    }
+    
+    /* Button Styling */
+    .stButton>button {
+        width: 100%;
+        border-radius: 8px;
+        font-weight: 600;
+        height: 3em;
+        transition: all 0.3s ease;
+    }
+    
+    /* Success Button (Green) */
+    div[data-testid="stButton"] > button:first-child {
+        background: linear-gradient(90deg, #11998e 0%, #38ef7d 100%);
+        color: white;
+        border: none;
+    }
+    div[data-testid="stButton"] > button:hover {
+        transform: scale(1.02);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    }
+
+    /* Headers */
+    h1, h2, h3 {
+        font-family: 'Helvetica Neue', sans-serif;
+        color: #2c3e50;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# --- AUTO-FIX EXCEL ---
 try:
     df_check = pd.read_excel('clients.xlsx')
     required_columns = ['Name', 'Phone', 'DueDate', 'Advance', 'Offer', 'History']
     for col in required_columns:
         if col not in df_check.columns:
-            df_check[col] = "" # Naye columns ko khali bana do
-            if col == 'Advance':
-                df_check[col] = 0 # Advance ko 0 set karo
+            df_check[col] = "" if col != 'Advance' else 0
     df_check.to_excel('clients.xlsx', index=False)
 except:
-    pass # Agar file nahi hai, toh neeche naya ban jayega
+    pass
 
-# --- SIDEBAR (Configuration) ---
-st.sidebar.header("⚙️ Configuration")
-api_key = st.sidebar.text_input("Enter Gemini API Key", type="password")
+# --- SIDEBAR (Modern Look) ---
+st.sidebar.image("https://cdn-icons-png.flaticon.com/512/4712/4712035.png", width=80)
+st.sidebar.title("PaymentPro")
+st.sidebar.markdown("---")
+
+api_key = st.sidebar.text_input("🔑 Gemini API Key", type="password")
 if api_key:
     genai.configure(api_key=api_key)
 
-st.sidebar.markdown("---")
-st.sidebar.header("💰 Merchant Details")
-upi_id = st.sidebar.text_input("UPI ID (e.g. gym@upi)")
-merchant_name = st.sidebar.text_input("Merchant Name")
+with st.sidebar.expander("⚙️ Merchant Settings"):
+    upi_id = st.text_input("UPI ID", placeholder="example@oksbi")
+    merchant_name = st.text_input("Business Name", placeholder="My Shop")
 
-# --- SIDEBAR (Add Client) ---
-st.sidebar.markdown("---")
-st.sidebar.header("➕ Add/Update Client")
-new_name = st.sidebar.text_input("Name")
-new_phone = st.sidebar.text_input("Phone (with +91)")
-new_date = st.sidebar.date_input("Next Bill Due Date")
-new_advance = st.sidebar.number_input("Advance Payment (₹)", min_value=0, value=0)
-new_offer = st.sidebar.text_input("Special Offer (Optional)", placeholder="e.g. 10% Off on yearly plan")
+st.sidebar.markdown("### 👥 Client Management")
+tab1, tab2 = st.sidebar.tabs(["Add New", "Edit/Delete"])
 
-if st.sidebar.button("Save Client Data"):
-    try:
-        df = pd.read_excel('clients.xlsx')
-    except:
-        df = pd.DataFrame(columns=['Name', 'Phone', 'DueDate', 'Advance', 'Offer', 'History'])
-    
-    clean_phone = str(new_phone).replace(" ", "").replace("-", "")
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    
-    # Check agar customer pehle se hai (Update Mode)
-    if clean_phone in df['Phone'].astype(str).values:
-        idx = df[df['Phone'].astype(str) == clean_phone].index[0]
-        df.at[idx, 'Name'] = new_name
-        df.at[idx, 'DueDate'] = new_date.strftime("%d-%m-%Y")
-        df.at[idx, 'Advance'] = new_advance
-        df.at[idx, 'Offer'] = new_offer
-        # History mein aaj ki date update kar do
-        current_history = str(df.at[idx, 'History']) if pd.notna(df.at[idx, 'History']) else ""
-        df.at[idx, 'History'] = f"{current_history} | Updated on {today_str}"
-        st.sidebar.success(f"Updated details for {new_name}!")
-    else:
-        # Naya Customer (Add Mode)
-        new_data = pd.DataFrame({
-            'Name': [new_name], 
-            'Phone': [clean_phone], 
-            'DueDate': [new_date.strftime("%d-%m-%Y")],
-            'Advance': [new_advance],
-            'Offer': [new_offer],
-            'History': [f"Joined on {today_str}"]
-        })
-        df = pd.concat([df, new_data], ignore_index=True)
-        st.sidebar.success("New Client Added!")
-    
-    df.to_excel('clients.xlsx', index=False)
-    st.rerun()
+with tab1:
+    with st.form("add_client_form"):
+        new_name = st.text_input("Customer Name")
+        new_phone = st.text_input("Phone Number")
+        new_date = st.date_input("Next Due Date")
+        col_a, col_b = st.columns(2)
+        new_advance = col_a.number_input("Advance (₹)", min_value=0)
+        new_offer = col_b.text_input("Offer Code")
+        submit_add = st.form_submit_button("➕ Add Customer")
+        
+        if submit_add:
+            try:
+                df = pd.read_excel('clients.xlsx')
+            except:
+                df = pd.DataFrame(columns=['Name', 'Phone', 'DueDate', 'Advance', 'Offer', 'History'])
+            
+            clean_phone = str(new_phone).replace(" ", "").replace("-", "")
+            new_data = pd.DataFrame({
+                'Name': [new_name], 'Phone': [clean_phone], 'DueDate': [new_date.strftime("%d-%m-%Y")],
+                'Advance': [new_advance], 'Offer': [new_offer], 'History': [f"Joined: {datetime.now().strftime('%Y-%m-%d')}"]
+            })
+            df = pd.concat([df, new_data], ignore_index=True)
+            df.to_excel('clients.xlsx', index=False)
+            st.success("Added!")
+            st.rerun()
 
-# --- SIDEBAR (Delete Client) ---
-st.sidebar.markdown("---")
-with st.sidebar.expander("🗑️ Delete Client"):
+with tab2:
     try:
         df_del = pd.read_excel('clients.xlsx')
         if not df_del.empty:
-            name_to_delete = st.selectbox("Select Name", df_del['Name'].unique())
-            if st.button("❌ Delete Permanently"):
-                df_del = df_del[df_del['Name'] != name_to_delete]
+            client_to_manage = st.selectbox("Select Client", df_del['Name'].unique())
+            if st.button("🗑️ Delete Selected"):
+                df_del = df_del[df_del['Name'] != client_to_manage]
                 df_del.to_excel('clients.xlsx', index=False)
                 st.rerun()
     except:
-        pass
+        st.caption("No clients found.")
 
-# --- MAIN APP ---
-col1, col2 = st.columns([2, 1])
+# --- MAIN DASHBOARD ---
 
-with col1:
-    st.subheader("📋 Customer Register")
+# 1. TOP STATS ROW (DASHBOARD FEEL)
+st.title("📊 Dashboard Overview")
+
+try:
+    df = pd.read_excel('clients.xlsx')
+    total_clients = len(df)
+    total_advance = df['Advance'].sum() if 'Advance' in df.columns else 0
+    today_due = 0 # Placeholder logic
+except:
+    total_clients = 0
+    total_advance = 0
+
+m1, m2, m3 = st.columns(3)
+m1.metric("👥 Total Customers", f"{total_clients}", "+1 this week")
+m2.metric("💰 Advance Collected", f"₹{total_advance:,}", "Secure")
+m3.metric("📅 Active Reminders", "Auto-Mode", "On")
+
+st.markdown("---")
+
+# 2. SPLIT LAYOUT
+c1, c2 = st.columns([1.8, 1.2])
+
+with c1:
+    st.subheader("📋 Client Database")
     try:
         df = pd.read_excel('clients.xlsx')
         if not df.empty:
-            # Display only important columns
-            st.dataframe(df[['Name', 'Phone', 'DueDate', 'Advance', 'Offer']], use_container_width=True)
-            
-            # Show History Expander
-            with st.expander("📜 View Full History Logs"):
-                st.dataframe(df[['Name', 'History']])
+            # Modern Table with Column Configuration
+            st.dataframe(
+                df,
+                column_config={
+                    "Name": st.column_config.TextColumn("Customer", help="Client Name", width="medium"),
+                    "Advance": st.column_config.ProgressColumn("Advance Paid", format="₹%f", min_value=0, max_value=5000),
+                    "Phone": st.column_config.TextColumn("Contact"),
+                    "DueDate": "Due Date"
+                },
+                use_container_width=True,
+                hide_index=True
+            )
         else:
-            st.info("No data found.")
+            st.info("👋 Welcome! Add your first client from the sidebar.")
     except:
-        st.info("Start adding clients from the sidebar!")
+        st.error("Database not initialized.")
 
-with col2:
-    st.subheader("🚀 Action Center")
-    tone = st.selectbox("Tone:", ["Polite", "Strict", "Funny", "Professional"])
+with c2:
+    st.subheader("🚀 AI Action Center")
     
-    if st.button("Generate Messages"):
-        if not api_key:
-            st.error("API Key missing!")
-        else:
-            model = genai.GenerativeModel('gemini-pro')
-            st.write("---")
-            
-            try:
-                df = pd.read_excel('clients.xlsx')
-                for index, row in df.iterrows():
-                    name = row['Name']
-                    phone = str(row['Phone'])
-                    advance = row['Advance']
-                    offer = row['Offer']
-                    due_date = row['DueDate']
-                    
-                    # --- SMART PROMPT ENGINEERING ---
-                    # Hum AI ko saara data denge taaki wo smart message banaye
-                    details = f"Advance Paid: ₹{advance}. Due Date: {due_date}. Special Offer: {offer}."
-                    prompt = f"""
-                    Write a WhatsApp payment reminder for {name}. 
-                    Tone: {tone}. Max 25 words.
-                    Context: {details}
-                    If they have advance, mention it. If they have an offer, mention it nicely.
-                    """
-                    
-                    try:
-                        response = model.generate_content(prompt)
-                        ai_msg = response.text
-                    except:
-                        ai_msg = f"Hello {name}, payment reminder. Due: {due_date}"
-
-                    # Payment Link Logic
-                    final_msg = ai_msg
-                    if upi_id:
-                        safe_name = urllib.parse.quote(merchant_name if merchant_name else "Merchant")
-                        # Agar advance 0 hai toh normal link, varna note
-                        pay_link = f"upi://pay?pa={upi_id}&pn={safe_name}&cu=INR"
-                        final_msg += f"\n\n👇 Pay Balance Here:\n{pay_link}"
-                    
-                    # WhatsApp Link
-                    encoded_msg = urllib.parse.quote(final_msg)
-                    wa_link = f"https://wa.me/{phone}?text={encoded_msg}"
-                    
-                    # Display Card
-                    st.success(f"👤 **{name}**")
-                    if advance > 0:
-                        st.caption(f"✅ Advance: ₹{advance} Jama hai")
-                    if offer:
-                        st.caption(f"🎉 Offer Active: {offer}")
+    # Card-like container
+    with st.container():
+        st.markdown('<div style="background-color:white; padding:15px; border-radius:10px;">', unsafe_allow_html=True)
+        
+        tone = st.select_slider("Select Tone", options=["Strict", "Professional", "Polite", "Funny"], value="Polite")
+        
+        if st.button("✨ Generate Smart Messages", use_container_width=True):
+            if not api_key:
+                st.error("Please enter API Key in sidebar.")
+            else:
+                model = genai.GenerativeModel('gemini-pro')
+                
+                # Processing Loop
+                try:
+                    df = pd.read_excel('clients.xlsx')
+                    for index, row in df.iterrows():
+                        name = row['Name']
+                        phone = str(row['Phone'])
+                        adv = row['Advance']
                         
-                    st.text_area("Message:", value=final_msg, height=120, key=f"msg_{index}")
-                    st.link_button(f"🚀 Send to {name}", wa_link)
-                    st.markdown("---")
-            except Exception as e:
-                st.error(f"Error: {e}")
+                        # Prompt
+                        prompt = f"Write a {tone} payment reminder for {name}. Mention advance of ₹{adv} if > 0. Max 20 words."
+                        try:
+                            res = model.generate_content(prompt)
+                            msg = res.text
+                        except:
+                            msg = f"Hello {name}, payment reminder."
+                        
+                        # Links
+                        final_msg = msg
+                        if upi_id:
+                            pay_url = f"upi://pay?pa={upi_id}&pn={merchant_name}&cu=INR"
+                            final_msg += f"\n\nLink: {pay_url}"
+                        
+                        wa_url = f"https://wa.me/{phone}?text={urllib.parse.quote(final_msg)}"
+                        
+                        # Result Card
+                        st.success(f"Message for **{name}**")
+                        st.code(final_msg, language=None)
+                        st.link_button(f"📤 Send via WhatsApp", wa_url, use_container_width=True)
+                        st.markdown("---")
+                        
+                except Exception as e:
+                    st.error(f"Error: {e}")
+        
+        st.markdown('</div>', unsafe_allow_html=True)
